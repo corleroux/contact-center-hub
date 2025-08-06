@@ -53,9 +53,10 @@ export async function POST({ request, locals: { getSession } }) {
   const messageBody = `Hello! Please join our WhatsApp group with this link: ${uniqueLink}`;
 
   try {
-    if(env.DEV_MODE == 'true') {
+    if(env.DEV_MODE == 'On') {
         leadPhoneNumber = env.TWILIO_TEST_PHONE_NUMBER;
     }
+    console.log('Sending SMS to:', leadPhoneNumber)
     await twilioClient.messages.create({
       body: messageBody,
       from: env.TWILIO_PHONE_NUMBER,
