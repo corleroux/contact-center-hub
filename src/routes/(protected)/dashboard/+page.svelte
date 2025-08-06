@@ -1,7 +1,6 @@
 <!-- src/routes/(protected)/dashboard/+page.svelte -->
 <script lang="ts">
     import { page } from '$app/stores';
-	import { env } from '$env/dynamic/private';
   
     // Type definition for our lead object
     type Lead = {
@@ -44,19 +43,13 @@
 
         isLoading = true; // Use the loading state to disable buttons
         statusMessage = `Sending SMS to ${currentLead.phone_number}...`;
-        let leadPhoneNumber = currentLead.phone_number
 
-        if(env.DEV_MODE == 'On') {
-            leadPhoneNumber = env.TWILIO_TEST_PHONE_NUMBER;
-        }
-
-        console.log('Sending SMS to:', leadPhoneNumber)
         const response = await fetch('/api/agent/send-sms', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 leadId: currentLead.lead_id,
-                leadPhoneNumber: leadPhoneNumber
+                leadPhoneNumber: currentLead.phone_number
             })
         });
 
