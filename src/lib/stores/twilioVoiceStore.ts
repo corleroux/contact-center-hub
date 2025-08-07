@@ -1,5 +1,5 @@
 // src/lib/stores/twilioVoiceStore.ts
-import { writable, get } from 'svelte/store'; // --- IMPORT 'get' ---
+import { writable, get } from 'svelte/store';
 import { Device } from '@twilio/voice-sdk';
 
 type VoiceStoreState = {
@@ -17,7 +17,7 @@ const store = writable<VoiceStoreState>({
   device: null,
   connection: null,
 });
-const { subscribe, set } = store; // --- REMOVED 'update' ---
+const { subscribe, set } = store;
 
 // --- Actions ---
 
@@ -34,17 +34,24 @@ const initDevice = async () => {
       codecPreferences: ['opus', 'pcmu'],
     });
 
+    const setReadyState = () => {
+        const currentState = get(store);
+        if (!currentState.isReady) { // Prevent this from running multiple times
+            console.log('Twilio device is registered, setting store state...');
+            set({ ...currentState, isReady: true, device });
+        }
+    };
+
     // --- START OF MODIFIED SECTION ---
-    device.on('ready', () => {
-      console.log('Twilio device is ready, setting store state...');
-      const currentState = get(store); // Get the current state
-      set({ ...currentState, isReady: true, device }); // Set the new state
-    });
+    // Listen for the 'registered' event, which we see in the logs.
+    device.on('registered', setReadyState);
+    // --- END OF MODIFIED SECTION ---
+
 
     device.on('error', (error) => {
       console.error('Twilio Device Error:', error);
       const currentState = get(store);
-      set({ ...currentState, error: error.message });
+      set({ ...currentState, error: error.message, isReady: false }); // Also set ready to false on error
     });
 
     device.on('connect', (connection) => {
@@ -56,9 +63,15 @@ const initDevice = async () => {
       const currentState = get(store);
       set({ ...currentState, onCall: false, connection: null });
     });
-    // --- END OF MODIFIED SECTION ---
 
-    device.register();
+    await device.register();
+
+    // --- NEW: Defensive check for race conditions ---
+    // If the device is already registered by the time we get here,
+    // manually call our ready state function.
+    if (device.status() === 'registered') {
+        setReadyState();
+    }
 
   } catch (err: any) {
     console.error(err);
@@ -81,7 +94,6 @@ const hangUp = () => {
   if (currentState.device) {
     currentState.device.disconnectAll();
   }
-  // We still need to manually set onCall to false here
   set({ ...currentState, onCall: false });
 };
 
