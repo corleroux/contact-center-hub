@@ -18,6 +18,7 @@
 	"dependencies": {
 		"@supabase/auth-helpers-sveltekit": "^0.13.0",
 		"@supabase/supabase-js": "^2.53.0",
+		"@twilio/voice-sdk": "^2.15.0",
 		"papaparse": "^5.5.3",
 		"twilio": "^5.8.0"
 	},
