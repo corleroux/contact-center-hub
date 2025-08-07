@@ -33,6 +33,7 @@ const initDevice = async () => {
     });
 
     device.on('ready', () => {
+      console.log('Twilio device is ready, updating store...');
       update(state => ({ ...state, isReady: true, device }));
     });
 
