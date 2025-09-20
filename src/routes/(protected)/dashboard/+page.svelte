@@ -1,9 +1,19 @@
 <!-- src/routes/(protected)/dashboard/+page.svelte -->
 <script lang="ts">
+  import { page } from '$app/stores';
   import { onMount } from 'svelte';
-  import AgentControls from '$lib/components/AgentControls.svelte';
+  // We will create these new components in the next steps
+  // import AgentControls from '$lib/components/AgentControls.svelte';
   import LeadDisplayCard from '$lib/components/LeadDisplayCard.svelte';
   import { twilioVoiceStore } from '$lib/stores/twilioVoiceStore';
+  import SidebarNav from '$lib/components/layout/SidebarNav.svelte';
+  import CallControls from '$lib/components/dashboard/agent/CallControls.svelte';
+  import AgentMetrics from '$lib/components/dashboard/agent/AgentMetrics.svelte';
+  import DispositionPanel from '$lib/components/dashboard/agent/DispositionPanel.svelte';
+  import FooterActions from '$lib/components/layout/FooterActions.svelte';
+  import CallScript from '$lib/components/dashboard/agent/CallScript.svelte';
+  import TipsSection from '$lib/components/dashboard/agent/TipsSection.svelte';
+  import TodaysCallbacks from '$lib/components/dashboard/agent/TodaysCallbacks.svelte';
 
   const voiceState = twilioVoiceStore;
 
@@ -17,8 +27,8 @@
   let statusMessage = 'Initializing communication device...';
   let smsSent = false;
 
-  // --- NEW: A single computed variable for the entire UI disabled state ---
   $: isUIDisabled = isLoading || !$voiceState.isReady || $voiceState.onCall;
+  $: todaysCallbacks = $page.data.todaysCallbacks || [];
 
   onMount(() => {
     twilioVoiceStore.initDevice();
@@ -79,42 +89,84 @@
   const handleHangUp = () => {
     twilioVoiceStore.hangUp();
   };
+
+  // Add this new function inside the <script> tag
+  const handleGetAndDial = async () => {
+      await getNextLead();
+      // The getNextLead function sets the currentLead, so we add a check here.
+      if (currentLead) {
+          handleDial();
+      }
+  };
+
+// src/routes/(protected)/dashboard/+page.svelte
+
+const handleDisposition = async (event: CustomEvent) => {
+    if (!currentLead) return;
+
+    isLoading = true; // Use loading state to disable UI
+    statusMessage = "Saving disposition...";
+
+    const response = await fetch('/api/agent/disposition-lead', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            leadId: currentLead.id,
+            ...event.detail // Pass outcome, notes, followUpDate
+        })
+    });
+
+    if (response.ok) {
+        statusMessage = 'Disposition saved. Ready for next lead.';
+        currentLead = null; // Clear the lead from the UI
+    } else {
+        const errorData = await response.json();
+        statusMessage = `Error: ${errorData.message}`;
+    }
+    isLoading = false;
+};
 </script>
 
-<!-- UI SECTION (UPDATED) -->
-<div class="space-y-4">
-    <div>
-        <h1 class="text-2xl font-bold text-gray-900">Agent Dashboard</h1>
-        <p class="mt-1 text-sm text-gray-500">{statusMessage}</p>
-    </div>
+<!-- NEW TAILWIND CSS LAYOUT -->
+<div class="h-full w-full bg-gray-50 grid grid-rows-[1fr_auto] grid-cols-12 gap-6 p-6">
 
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <div class="lg:col-span-1">
-            <!-- --- CORRECTED USAGE --- -->
-            <AgentControls
-                isLoading={isLoading}
-                disabled={isUIDisabled}
-                on:getnextlead={getNextLead}
-            />
-            {#if $voiceState.onCall}
-                <div class="mt-6 rounded-lg border bg-white p-6 shadow-sm">
-                    <h2 class="text-lg font-semibold text-gray-800">Call Active</h2>
-                    <button on:click={handleHangUp} class="mt-4 w-full rounded-md bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700">
-                        Hang Up
-                    </button>
-                </div>
-            {/if}
-        </div>
+<!-- 1. Left Sidebar Navigation -->
+<aside class="col-span-2 bg-white rounded-lg border border-gray-200 p-4">
+  <SidebarNav />
+  <TodaysCallbacks callbacks={todaysCallbacks} />
+</aside>
 
-        <div class="lg:col-span-2">
-             <!-- --- CORRECTED USAGE --- -->
-            <LeadDisplayCard
-                lead={currentLead}
-                isLoading={isUIDisabled}
-                {smsSent}
-                on:dial={handleDial}
-                on:sendsms={handleSendSms}
-            />
-        </div>
-    </div>
+<!-- 2. Main Interaction Panel -->
+<main class="col-span-7 flex flex-col gap-6">
+  <LeadDisplayCard
+      lead={currentLead}
+  />
+  <!-- These components only show when a lead is active -->
+  {#if currentLead}
+    <CallScript />
+    <TipsSection />
+    <DispositionPanel on:submit={handleDisposition} />
+  {/if}
+</main>
+
+<!-- 3. Right Sidebar Controls -->
+<aside class="col-span-3 flex flex-col gap-6">
+    <CallControls
+      onCall={$voiceState.onCall}
+      disabled={isUIDisabled}
+      on:click={ $voiceState.onCall ? handleHangUp : handleGetAndDial }
+    />
+    <AgentMetrics />
+  </aside>
+
+      
+  <!-- 4. Footer Actions -->
+  <footer class="col-span-12 bg-white rounded-lg border border-gray-200 p-4 flex items-center">
+    <FooterActions
+      disabled={!currentLead || isUIDisabled}
+      {smsSent}
+      on:sendsms={handleSendSms}
+    />
+  </footer>
+
 </div>

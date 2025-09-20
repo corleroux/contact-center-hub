@@ -2,16 +2,30 @@
 import { redirect } from '@sveltejs/kit';
 import type { LayoutServerLoad } from './$types';
 
-export const load: LayoutServerLoad = async ({ locals: { getSession } }) => {
-    const session = await getSession();
+export const load: LayoutServerLoad = async ({ locals: { supabase, getSession } }) => {
+  const session = await getSession();
 
-  // if the user is not logged in, redirect to the login page
   if (!session) {
     throw redirect(303, '/login');
   }
 
-  // we can pass the session down to the layout and page if needed
+  // Fetch user roles (existing code)
+  const { data: userRolesData } = await supabase
+    .from('user_roles')
+    .select('roles(name)')
+    .eq('user_id', session.user.id);
+  const userRoles = userRolesData?.map(role => role.roles.name) || [];
+
+  // --- NEW ---
+  // Fetch today's scheduled callbacks for the logged-in agent
+  const { data: todaysCallbacks } = await supabase
+    .rpc('get_todays_callbacks', { agent_id_input: session.user.id });
+  // --- END NEW ---
+
+  // Pass all data to the layout and its pages
   return {
     session,
+    userRoles,
+    todaysCallbacks: todaysCallbacks || [], // Ensure we always pass an array
   };
 };

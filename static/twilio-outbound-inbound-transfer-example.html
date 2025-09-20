@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Twilio Contact Centre</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://www.twilio.com/labs/voice-client-sdk/v1.13/twilio.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F3F4F6;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <div class="bg-white shadow-xl rounded-2xl p-6 md:p-10">
+            <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Simple Twilio Contact Centre</h1>
+            <p class="text-center text-gray-600 mb-8">This application simulates a two-stage call center workflow: a Lead Agent makes an outbound call and transfers it to a Sales Agent.</p>
+
+            <!-- Agent Login/Status Panel -->
+            <div class="mb-8">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Agent Status</h2>
+                <div class="flex items-center space-x-4 mb-4">
+                    <button id="connect-button" class="flex-1 bg-green-500 text-white font-bold py-3 px-6 rounded-full shadow-lg transition duration-300 transform hover:scale-105">
+                        <span id="connect-text">Connect to Twilio</span>
+                    </button>
+                    <div id="status" class="bg-gray-200 text-gray-800 py-2 px-4 rounded-full font-semibold transition-colors duration-300">
+                        Disconnected
+                    </div>
+                </div>
+                <p id="log" class="text-sm text-gray-500 mt-2 h-12 overflow-y-auto"></p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Lead Agent Panel -->
+                <div class="bg-gray-50 rounded-lg p-6 border border-gray-200 shadow-md">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Lead Agent: Outbound Campaign</h2>
+                    <div class="space-y-4">
+                        <div class="flex items-center space-x-2">
+                            <input id="outbound-number" type="tel" placeholder="Enter phone number..." class="flex-1 p-3 rounded-md border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <button id="call-button" class="w-full bg-blue-500 text-white font-bold py-3 px-6 rounded-full shadow-md transition duration-300 transform hover:scale-105">
+                            <span id="call-text">Start Outbound Call</span>
+                        </button>
+                    </div>
+                    <div class="mt-6 border-t border-gray-200 pt-6">
+                        <h3 class="text-xl font-medium text-gray-700 mb-3">Call Transfer</h3>
+                        <p class="text-sm text-gray-500 mb-4">Transfer the current call to the Sales Agent's campaign.</p>
+                        <button id="transfer-button" class="w-full bg-purple-500 text-white font-bold py-3 px-6 rounded-full shadow-md transition duration-300 transform hover:scale-105" disabled>
+                            Transfer to Sales Agent
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Sales Agent Panel -->
+                <div class="bg-gray-50 rounded-lg p-6 border border-gray-200 shadow-md">
+                    <h2 class="text-2xl font-semibold text-gray-700 mb-4">Sales Agent: Inbound Campaign</h2>
+                    <p class="text-sm text-gray-500 mb-4">This agent receives transferred calls from the Lead Agent.</p>
+                    <div id="incoming-call-panel" class="hidden bg-yellow-100 border border-yellow-300 p-4 rounded-md text-center">
+                        <p class="text-yellow-800 font-semibold mb-2">Incoming Call from Lead Agent...</p>
+                        <div class="flex justify-center space-x-4">
+                            <button id="accept-button" class="bg-green-500 text-white font-bold py-2 px-6 rounded-full shadow-md transition duration-300 transform hover:scale-105">Accept</button>
+                            <button id="reject-button" class="bg-red-500 text-white font-bold py-2 px-6 rounded-full shadow-md transition duration-300 transform hover:scale-105">Reject</button>
+                        </div>
+                    </div>
+                    <div class="flex justify-center mt-6">
+                        <button id="hangup-button" class="w-full bg-red-500 text-white font-bold py-3 px-6 rounded-full shadow-md transition duration-300 transform hover:scale-105">
+                            Hang Up
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // These are placeholder values. In a real application, you would get these from a secure backend.
+            const TWILIO_ACCOUNT_SID = 'ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
+            const TWILIO_TOKEN_ENDPOINT = 'YOUR_BACKEND_SERVER_URL/token'; // E.g., a Twilio Function
+            const TWIML_TRANSFER_URL = 'YOUR_BACKEND_SERVER_URL/transfer'; // E.g., another Twilio Function
+
+            let device;
+            let currentConnection;
+
+            const connectButton = document.getElementById('connect-button');
+            const callButton = document.getElementById('call-button');
+            const hangupButton = document.getElementById('hangup-button');
+            const transferButton = document.getElementById('transfer-button');
+            const acceptButton = document.getElementById('accept-button');
+            const rejectButton = document.getElementById('reject-button');
+            const outboundNumberInput = document.getElementById('outbound-number');
+            const statusDiv = document.getElementById('status');
+            const logDiv = document.getElementById('log');
+            const incomingCallPanel = document.getElementById('incoming-call-panel');
+
+            // Log messages to the UI
+            function log(message) {
+                const now = new Date();
+                const time = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+                logDiv.innerHTML += `<span class="text-xs text-gray-500">${time}</span> - ${message}<br>`;
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+
+            // Update UI status
+            function updateStatus(text, color = 'bg-gray-200', textColor = 'text-gray-800') {
+                statusDiv.textContent = text;
+                statusDiv.className = `py-2 px-4 rounded-full font-semibold transition-colors duration-300 ${color} ${textColor}`;
+            }
+
+            // Fetch a capability token from your backend.
+            // In a real app, this would be a secure, authenticated request.
+            async function fetchToken() {
+                log("Fetching a new token...");
+                try {
+                    const response = await fetch(TWILIO_TOKEN_ENDPOINT);
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const data = await response.json();
+                    return data.token;
+                } catch (error) {
+                    log(`Error fetching token: ${error.message}`);
+                    return null;
+                }
+            }
+
+            // Initialize the Twilio Device and set up event listeners
+            function setupDevice(token) {
+                if (device) {
+                    device.destroy();
+                }
+                device = new Twilio.Device(token, {
+                    logLevel: 1, // 0-5: 0=no logs, 5=all logs
+                    // This is a placeholder for the agent's ID or identity.
+                    // In a real app, this would be unique per agent.
+                    // For this demo, let's use a static ID.
+                    agentIdentity: "salesAgent1",
+                });
+
+                device.on('ready', () => {
+                    updateStatus('Connected', 'bg-green-500', 'text-white');
+                    log("Successfully established a Twilio Device connection!");
+                });
+
+                device.on('error', (error) => {
+                    updateStatus('Error', 'bg-red-500', 'text-white');
+                    log(`Twilio.Device Error: ${error.message}`);
+                });
+
+                device.on('incoming', (connection) => {
+                    log("Incoming call from a Lead Agent!");
+                    currentConnection = connection;
+                    incomingCallPanel.classList.remove('hidden');
+
+                    connection.on('disconnect', () => {
+                        log("Call disconnected.");
+                        incomingCallPanel.classList.add('hidden');
+                        currentConnection = null;
+                        transferButton.disabled = true;
+                    });
+                });
+
+                device.on('disconnect', () => {
+                    updateStatus('Disconnected', 'bg-gray-200', 'text-gray-800');
+                    log("Disconnected from Twilio.");
+                    currentConnection = null;
+                    callButton.textContent = 'Start Outbound Call';
+                    transferButton.disabled = true;
+                });
+            }
+
+            // Lead Agent: Make an outbound call
+            callButton.addEventListener('click', () => {
+                if (!device) {
+                    log("Please connect to Twilio first.");
+                    return;
+                }
+                const number = outboundNumberInput.value;
+                if (!number) {
+                    log("Please enter a phone number.");
+                    return;
+                }
+
+                // In a real app, you would have a TwiML server that handles this call.
+                // For this demo, we'll just initiate a call to a number.
+                const params = {
+                    To: number,
+                    // The 'From' number would be a verified Twilio number.
+                    From: "+15017122661" // This is a placeholder Twilio number
+                };
+
+                log(`Initiating outbound call to ${number}...`);
+                currentConnection = device.connect(params);
+
+                currentConnection.on('accept', () => {
+                    log("Call connected!");
+                    callButton.textContent = 'Call in Progress';
+                    transferButton.disabled = false;
+                });
+
+                currentConnection.on('disconnect', () => {
+                    log("Call disconnected.");
+                    currentConnection = null;
+                    callButton.textContent = 'Start Outbound Call';
+                    transferButton.disabled = true;
+                });
+
+                currentConnection.on('cancel', () => {
+                    log("Call cancelled.");
+                    currentConnection = null;
+                    callButton.textContent = 'Start Outbound Call';
+                    transferButton.disabled = true;
+                });
+            });
+
+            // Lead Agent: Transfer the call
+            transferButton.addEventListener('click', async () => {
+                if (!currentConnection) {
+                    log("No active call to transfer.");
+                    return;
+                }
+
+                log("Transferring call to Sales Agent...");
+                // The transfer action itself would be handled by a TwiML server.
+                // We're simulating this by sending a `TwiML` instruction to the active call.
+                // The TwiML would look something like this:
+                // <Response>
+                //   <Dial action="/transfer-callback" method="POST">
+                //     <Client>salesAgent1</Client>
+                //   </Dial>
+                // </Response>
+
+                // To simulate this, we'll just log the action. In a real scenario,
+                // the Lead Agent's device would initiate a REST API call to your backend.
+                // The backend would respond with TwiML that transfers the call.
+
+                // Example of a server-side call that would be initiated:
+                // const client = require('twilio')(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+                // client.calls(currentConnection.parameters.CallSid)
+                //      .update({ twiml: `<Response><Dial><Client>salesAgent1</Client></Dial></Response>` })
+                //      .then(call => console.log(call.sid));
+
+                log("Simulating transfer... A server would now send TwiML to the active call.");
+
+                // For this demo, let's just pretend the transfer happened.
+                // The Lead Agent's call will disconnect, and the Sales Agent will receive an "incoming" event.
+                currentConnection.disconnect();
+                
+                // This is the trigger for the Sales Agent's side of the demo
+                // In a real application, the 'incoming' event would be triggered by Twilio's webhook.
+                device.emit('incoming', {
+                    accept: () => {
+                        log("Sales Agent accepted the call!");
+                        incomingCallPanel.classList.add('hidden');
+                        updateStatus('On a call', 'bg-blue-500', 'text-white');
+                    },
+                    reject: () => {
+                        log("Sales Agent rejected the call.");
+                        incomingCallPanel.classList.add('hidden');
+                        updateStatus('Connected', 'bg-green-500', 'text-white');
+                    },
+                    parameters: {
+                        From: "leadAgent1"
+                    },
+                    disconnect: () => {
+                        log("Call with Sales Agent ended.");
+                        updateStatus('Connected', 'bg-green-500', 'text-white');
+                        incomingCallPanel.classList.add('hidden');
+                    }
+                });
+            });
+
+            // Sales Agent: Handle incoming call
+            acceptButton.addEventListener('click', () => {
+                if (currentConnection) {
+                    currentConnection.accept();
+                    updateStatus('On a call', 'bg-blue-500', 'text-white');
+                }
+            });
+
+            rejectButton.addEventListener('click', () => {
+                if (currentConnection) {
+                    currentConnection.reject();
+                }
+            });
+
+            // Universal: Hang up the call
+            hangupButton.addEventListener('click', () => {
+                if (currentConnection) {
+                    log("Ending call...");
+                    currentConnection.disconnect();
+                } else {
+                    log("No active call to hang up.");
+                }
+            });
+            
+            // Connect to Twilio
+            connectButton.addEventListener('click', async () => {
+                if (device && device.status() === 'ready') {
+                    device.disconnectAll();
+                    updateStatus('Disconnecting...');
+                } else {
+                    connectButton.disabled = true;
+                    connectButton.textContent = 'Connecting...';
+                    const token = await fetchToken();
+                    if (token) {
+                        setupDevice(token);
+                    } else {
+                        log("Could not get a token. Connection failed.");
+                        connectButton.disabled = false;
+                        connectButton.textContent = 'Connect to Twilio';
+                    }
+                }
+            });
+
+            // Update UI on device status changes
+            Twilio.Device.on('ready', () => {
+                connectButton.disabled = false;
+                connectButton.textContent = 'Disconnect';
+            });
+            Twilio.Device.on('offline', () => {
+                connectButton.disabled = false;
+                connectButton.textContent = 'Connect to Twilio';
+            });
+        });
+    </script>
+</body>
+</html>
