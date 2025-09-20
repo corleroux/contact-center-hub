@@ -24,10 +24,12 @@ export async function GET({ locals: { getSession } }) {
     { identity: identity }
   );
 
+
   // Create a "grant" for the Voice service
+  const voiceAppSid = (env.DEV_MODE === "On") ? env.TWILIO_APP_SID_LOCAL : env.TWILIO_APP_SID;
   const voiceGrant = new VoiceGrant({
     // The TwiML App SID tells Twilio which app to use for outgoing calls
-    outgoingApplicationSid: env.TWILIO_APP_SID,
+    outgoingApplicationSid: voiceAppSid,
     // We can also allow incoming calls to this identity if we build that later
     incomingAllow: true,
   });
